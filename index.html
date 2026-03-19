@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Trò Chơi Vận Động - Nghiêng Người Né Vật Cản (Đúng Hướng & Mượt)</title>
+    <!-- MediaPipe CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <style>
+        body { 
+            margin:0; font-family:Arial,sans-serif; background: url('https://files.catbox.moe/0rri0l.png') no-repeat center center fixed; 
+            background-size: cover; 
+            background-position: center; 
+            animation: subtleWave 20s infinite linear; 
+            color:#333; overflow:hidden; 
+        }
+        @keyframes subtleWave {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+        #container { position:relative; width:100vw; height:100vh; }
+        #video { 
+            position:absolute; top:20px; right:20px; width:160px; height:120px; 
+            object-fit:cover; border:4px solid #0f0; border-radius:12px; 
+            box-shadow:0 0 25px #0f0; z-index:15; transform:scaleX(-1); 
+        }
+        #fog-frame {
+            position:absolute; top:20px; right:20px; width:160px; height:120px; 
+            pointer-events:none; z-index:16;
+            background: radial-gradient(circle at center, transparent 40%, rgba(0,255,0,0.25) 70%, rgba(0,255,0,0.05) 100%);
+            border: 3px solid rgba(0,255,0,0.6);
+            border-radius: 12px;
+            box-shadow: inset 0 0 40px rgba(0,255,0,0.4);
+        }
+        #video-label { 
+            position:absolute; top:10px; right:50%; transform:translateX(50%); 
+            background:rgba(0,0,0,0.7); color:white; padding:5px 15px; border-radius:20px; font-size:0.9em; z-index:17; 
+        }
+        #player { 
+            position:absolute; bottom:20px; text-align:center; 
+            transition: left 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94); z-index:10; 
+            width: 200px;
+            height: 200px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        #player img {
+            width: 200px;
+            height: 200px;
+            object-fit: contain;
+        }
+        .obstacle { 
+            position:absolute; font-size:100px; pointer-events:none; z-index:5; 
+            transition: top 0.08s linear; 
+        }
+        #ui { 
+            position:absolute; top:20px; left:20px; z-index:20; 
+            background:rgba(255,255,255,0.92); padding:15px 20px; border-radius:12px; 
+            font-size:1.4em; text-align:center; box-shadow:0 5px 15px rgba(0,0,0,0.3);
+            transition: all 0.3s ease;
+            max-width: 280px;
+        }
+        #ui.collapsed {
+            padding: 10px 15px;
+            font-size: 1.1em;
+        }
+        #ui.collapsed #timeSelector,
+        #ui.collapsed #leanStatus,
+        #ui.collapsed #angleStatus {
+            display: none;
+        }
+        #ui.collapsed > div:not(#expandBtn):not(:last-child) {
+            display: none;
+        }
+        #expandBtn {
+            background: #2196F3;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-bottom: 5px;
+            font-size: 0.8em;
+        }
+        #expandBtn:hover {
+            background: #1976D2;
+        }
+        #scoreboard {
+            display: none;
+        }
+        #currentScore {
+            position: absolute;
+            top: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(76, 175, 80, 0.3);
+            color: white;
+            padding: 20px 40px;
+            border-radius: 15px;
+            font-size: 2em;
+            font-weight: bold;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+            border: 2px solid rgba(76, 175, 80, 0.6);
+            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.2);
+            z-index: 15;
+            text-align: center;
+            min-width: 160px;
+            display: none;
+        }
+        #currentScore.show {
+            display: block;
+        }
+        #currentScore .label {
+            font-size: 0.6em;
+            opacity: 0.9;
+            display: block;
+            margin-bottom: 5px;
+        }
+        #instruction { 
+            position:absolute; bottom:280px; left:50%; transform:translateX(-50%);
+            background:rgba(0,0,0,0.7); color:white; padding:15px 25px; border-radius:10px; 
+            font-size:1.3em; white-space:nowrap; z-index:5;
+        }
+        @keyframes shake {
+            0% { transform: translate(1px, 1px) rotate(0deg); }
+            10% { transform: translate(-1px, -2px) rotate(-1deg); }
+            20% { transform: translate(-3px, 0px) rotate(1deg); }
+            30% { transform: translate(3px, 2px) rotate(0deg); }
+            40% { transform: translate(1px, -1px) rotate(1deg); }
+            50% { transform: translate(-1px, 2px) rotate(-1deg); }
+            60% { transform: translate(-3px, 1px) rotate(0deg); }
+            70% { transform: translate(3px, 1px) rotate(-1deg); }
+            80% { transform: translate(-1px, -1px) rotate(1deg); }
+            90% { transform: translate(1px, 2px) rotate(0deg); }
+            100% { transform: translate(1px, -2px) rotate(-1deg); }
+        }
+        .shake { animation: shake 0.4s; }
+        .start-btn {
+            margin-top:10px;
+            padding:10px 20px;
+            font-size:1em;
+            background:#4CAF50;
+            color:white;
+            border:none;
+            border-radius:8px;
+            cursor:pointer;
+        }
+        .hidden {
+            display:none;
+        }
+        #timeSelector {
+            margin-bottom: 15px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        .time-btn {
+            padding: 8px 15px;
+            font-size: 0.9em;
+            background: #2196F3;
+            color: white;
+            border: 2px solid #2196F3;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .time-btn.active {
+            background: #4CAF50;
+            border-color: #4CAF50;
+            font-weight: bold;
+        }
+        .time-btn:hover {
+            transform: scale(1.05);
+        }
+        #bgMusic {
+            display:none;
+        }
+        #congratsModal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        #congratsModal.show {
+            display: flex;
+        }
+        .congrats-box {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 40px;
+            border-radius: 20px;
+            text-align: center;
+            color: white;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+            animation: popIn 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+        @keyframes popIn {
+            0% { transform: scale(0) rotate(-10deg); opacity: 0; }
+            100% { transform: scale(1) rotate(0); opacity: 1; }
+        }
+        .congrats-box h1 {
+            font-size: 3em;
+            margin: 0 0 20px 0;
+            animation: bounce 1s infinite;
+        }
+        @keyframes bounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-20px); }
+        }
+        .congrats-box .final-score {
+            font-size: 2.5em;
+            margin: 20px 0;
+            font-weight: bold;
+        }
+        .firework-particle {
+            position: fixed;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            pointer-events: none;
+        }
+        @keyframes explode {
+            0% {
+                transform: translate(0, 0) scale(1);
+                opacity: 1;
+            }
+            100% {
+                transform: translate(var(--tx, 0), var(--ty, 0)) scale(0);
+                opacity: 0;
+            }
+        }
+        #congratsModal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        #congratsModal.show {
+            display: flex;
+        }
+        .congrats-box {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 40px;
+            border-radius: 20px;
+            text-align: center;
+            color: white;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+            animation: popIn 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+        @keyframes popIn {
+            0% { transform: scale(0) rotate(-10deg); opacity: 0; }
+            100% { transform: scale(1) rotate(0); opacity: 1; }
+        }
+        .congrats-box h1 {
+            font-size: 3em;
+            margin: 0 0 20px 0;
+            animation: bounce 1s infinite;
+        }
+        @keyframes bounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-20px); }
+        }
+        .congrats-box .final-score {
+            font-size: 2.5em;
+            margin: 20px 0;
+            font-weight: bold;
+        }
+        .firework {
+            position: fixed;
+            pointer-events: none;
+        }
+        .firework-particle {
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+        }
+        .replay-btn {
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <audio id="bgMusic" loop>
+        <source src="https://files.catbox.moe/h75g6j.mp3" type="audio/mpeg">
+    </audio>
+    <audio id="bonusSound">
+        <source src="https://files.catbox.moe/1tt20q.mp3" type="audio/mpeg">
+    </audio>
+    <audio id="damageSound">
+        <source src="https://files.catbox.moe/vk2kxc.mp3" type="audio/mpeg">
+    </audio>
+    <audio id="congratsSound">
+        <source src="https://files.catbox.moe/jsyrn4.mp3" type="audio/mpeg">
+    </audio>
+    <div id="container">
+        <video id="video" autoplay></video>
+        <div id="fog-frame"></div>
+        <div id="player"><img src="https://files.catbox.moe/zgjrxw.png" alt="Player"></div>
+        <canvas id="gameCanvas"></canvas>
+
+        <div id="ui" class="collapsed">
+            <button id="expandBtn" onclick="toggleUISize()">⚙️ Mở</button>
+            <div id="leanStatus">Nghiêng: Giữa</div>
+            <div id="angleStatus">Góc: 0°</div>
+            <div>Điểm: <span id="score">0</span></div>
+            <div>Thời gian: <span id="timer">5:00</span></div>
+            <div id="timeSelector">
+                <button class="time-btn active" onclick="selectTime(60)" data-time="60">1 phút</button>
+                <button class="time-btn" onclick="selectTime(180)" data-time="180">3 phút</button>
+                <button class="time-btn" onclick="selectTime(300)" data-time="300">5 phút</button>
+                <button class="time-btn" onclick="selectTime(600)" data-time="600">10 phút</button>
+            </div>
+            <button type="button" class="start-btn" onclick="startGame()" id="startBtn">BẮT ĐẦU GAME</button>
+            <button type="button" class="start-btn hidden" onclick="togglePause()" id="pauseBtn">TẠM DỪNG</button>
+        </div>
+
+        <div id="scoreboard">
+            <h3>🏆 TOP ĐIỂM</h3>
+            <ol id="scoreList">
+                <li>-</li>
+            </ol>
+        </div>
+
+        <div id="currentScore">
+            <div class="label">ĐIỂM HIỆN TẠI</div>
+            <div id="currentScoreValue">0</div>
+        </div>
+
+        <div id="footer">
+        </div>
+        <div id="congratsModal">
+            <div class="congrats-box">
+                <h1>🎉 CHÚC MỪNG! 🎉</h1>
+                <div>Bạn đã hoàn thành 5 phút!</div>
+                <div class="final-score">Điểm: <span id="finalScore">0</span></div>
+                <button type="button" class="start-btn replay-btn" onclick="location.reload()">CHƠI LẠI</button>
+            </div>
+        </div>
+
+    <script>
+        const videoElement = document.getElementById('video');
+        const player = document.getElementById('player');
+        const leanStatus = document.getElementById('leanStatus');
+        const angleStatus = document.getElementById('angleStatus');
+        const scoreEl = document.getElementById('score');
+        const timerEl = document.getElementById('timer');
+
+        let gameRunning = false;
+        let gamePaused = false;
+        let playerPos = 0.5; // 0: trái, 1: phải (liên tục)
+        let targetPos = 0.5; // Để lerp mượt
+        let score = 0;
+        let selectedTime = 300; // Mặc định 5 phút
+        let timeLeft = 300;
+        let obstacles = [];
+        let fallSpeed = 3;
+        let timerInterval = null;
+        let spawnTimeoutId = null;
+        let gameLoopId = null;
+        let topScores = [];
+
+        function loadScores() {
+            const saved = localStorage.getItem('topScores');
+            topScores = saved ? JSON.parse(saved) : [];
+            updateScoreboard();
+        }
+
+        function saveScore(newScore) {
+            topScores.push(newScore);
+            topScores.sort((a, b) => b - a);
+            topScores = topScores.slice(0, 5); // Giữ top 5
+            localStorage.setItem('topScores', JSON.stringify(topScores));
+            updateScoreboard();
+        }
+
+        function updateScoreboard() {
+            const scoreList = document.getElementById('scoreList');
+            if (topScores.length === 0) {
+                scoreList.innerHTML = '<li>-</li>';
+            } else {
+                scoreList.innerHTML = topScores.map(s => `<li>${s} điểm</li>`).join('');
+            }
+        }
+
+        // Tải điểm khi khởi động
+        loadScores();
+
+        function selectTime(seconds) {
+            selectedTime = seconds;
+            // Cập nhật UI
+            document.querySelectorAll('.time-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            document.querySelector(`[data-time="${seconds}"]`).classList.add('active');
+        }
+
+        function toggleUISize() {
+            const ui = document.getElementById('ui');
+            const btn = document.getElementById('expandBtn');
+            ui.classList.toggle('collapsed');
+            if (ui.classList.contains('collapsed')) {
+                btn.textContent = '⚡ Mở';
+            } else {
+                btn.textContent = '⚡ Đóng';
+            }
+        }
+
+        function startGame() {
+            const canvasWidth = window.innerWidth;
+            updatePlayerPosition();
+
+            // Phát nhạc nền
+            const bgMusic = document.getElementById('bgMusic');
+            bgMusic.play().catch(err => console.log('Audio play failed:', err));
+
+            const pose = new Pose({
+                locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
+            });
+
+            pose.setOptions({
+                modelComplexity: 1,
+                smoothLandmarks: true,
+                minDetectionConfidence: 0.5,
+                minTrackingConfidence: 0.5
+            });
+
+            pose.onResults(onResults);
+
+            const camera = new Camera(videoElement, {
+                onFrame: async () => {
+                    await pose.send({image: videoElement});
+                },
+                width: 320,
+                height: 240
+            });
+
+            camera.start();
+            gameRunning = true;
+            gamePaused = false;
+            score = 0;
+            scoreEl.textContent = score;
+            timeLeft = selectedTime;
+            updateTimer();
+            timerInterval = setInterval(updateTimer, 1000);
+            spawnObstacleRandomly();
+            setInterval(increaseSpeed, 30000);
+            gameLoop();
+            document.getElementById('startBtn').classList.add('hidden');
+            document.getElementById('pauseBtn').classList.remove('hidden');
+            document.getElementById('pauseBtn').textContent = 'TẠM DỪNG';
+            document.getElementById('ui').classList.add('collapsed');
+            document.getElementById('expandBtn').textContent = '⚙️ Mở';
+            document.getElementById('currentScore').classList.add('show');
+        }
+
+        function updateTimer() {
+            if (!gameRunning || gamePaused) return;
+            timeLeft--;
+            const minutes = Math.floor(timeLeft / 60);
+            const seconds = timeLeft % 60;
+            timerEl.textContent = `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
+            if (timeLeft <= 0) {
+                clearInterval(timerInterval);
+                gameRunning = false;
+                document.getElementById('pauseBtn').classList.add('hidden');
+                document.getElementById('startBtn').classList.remove('hidden');
+                document.getElementById('ui').classList.remove('collapsed');
+                document.getElementById('expandBtn').textContent = '⚙️ Đóng';
+                document.getElementById('currentScore').classList.remove('show');
+                showCongratulations();
+            }
+        }
+
+        function showCongratulations() {
+            document.getElementById('finalScore').textContent = score;
+            document.getElementById('congratsModal').classList.add('show');
+            saveScore(score);
+            const bgMusic = document.getElementById('bgMusic');
+            bgMusic.pause();
+            const congratsSound = document.getElementById('congratsSound');
+            congratsSound.currentTime = 0;
+            congratsSound.play().catch(err => console.log('Sound play failed:', err));
+            createFireworks();
+        }
+
+        function createFireworks() {
+            const colors = ['#FF1461', '#18FF92', '#5A87FF', '#FBF38C', '#FF006E'];
+            for (let i = 0; i < 80; i++) {
+                setTimeout(() => {
+                    const x = Math.random() * window.innerWidth;
+                    const y = Math.random() * window.innerHeight;
+                    const color = colors[Math.floor(Math.random() * colors.length)];
+                    
+                    const particle = document.createElement('div');
+                    particle.className = 'firework-particle';
+                    particle.style.left = x + 'px';
+                    particle.style.top = y + 'px';
+                    particle.style.background = color;
+                    
+                    // Tạo ngẫu nhiên hướng bay
+                    const angle = Math.random() * Math.PI * 2;
+                    const distance = 100 + Math.random() * 150;
+                    const tx = Math.cos(angle) * distance;
+                    const ty = Math.sin(angle) * distance;
+                    
+                    particle.style.setProperty('--tx', tx + 'px');
+                    particle.style.setProperty('--ty', ty + 'px');
+                    particle.style.animation = `explode ${0.8 + Math.random() * 0.4}s ease-out forwards`;
+                    
+                    document.body.appendChild(particle);
+                    
+                    setTimeout(() => particle.remove(), 1200);
+                }, i * 20);
+            }
+        }
+
+        function togglePause() {
+            if (!gameRunning) return;
+            gamePaused = !gamePaused;
+            const pauseBtn = document.getElementById('pauseBtn');
+            const bgMusic = document.getElementById('bgMusic');
+            if (gamePaused) {
+                pauseBtn.textContent = 'TIẾP TỤC';
+                pauseBtn.style.background = '#ff9800';
+                bgMusic.pause();
+            } else {
+                pauseBtn.textContent = 'TẠM DỪNG';
+                pauseBtn.style.background = '#4CAF50';
+                bgMusic.play();
+            }
+        }
+
+        function increaseSpeed() {
+            if (!gameRunning) return;
+            fallSpeed = Math.min(fallSpeed + 0.5, 10);
+        }
+
+        function spawnObstacle() {
+            if (!gameRunning) return;
+            const x = Math.random() * (window.innerWidth - 100); // Ngẫu nhiên toàn màn hình, trừ kích thước ảnh
+            const isGreen = Math.random() < 0.5;
+            const obs = document.createElement('div');
+            obs.className = 'obstacle';
+            obs.style.left = x + 'px';
+            obs.style.top = '-80px';
+            obs.style.display = 'flex';
+            obs.style.justifyContent = 'center';
+            obs.style.alignItems = 'center';
+            
+            // Mỗi loại có 2 ảnh khác nhau
+            let imgSrc;
+            if (isGreen) {
+                const greenImages = ['https://files.catbox.moe/gvgudk.png', 'https://files.catbox.moe/yofk0r.png'];
+                imgSrc = greenImages[Math.floor(Math.random() * greenImages.length)];
+            } else {
+                const redImages = ['https://files.catbox.moe/ig95ik.png', 'https://files.catbox.moe/uop0dg.png','https://files.catbox.moe/iadcaq.png'];
+                imgSrc = redImages[Math.floor(Math.random() * redImages.length)];
+            }
+            
+            obs.innerHTML = `<img src="${imgSrc}" style="width:90px;height:90px;object-fit:contain;">`;
+            obs.dataset.isGreen = isGreen ? 'true' : 'false';
+            document.body.appendChild(obs);
+            obstacles.push({ elem: obs, x: x, y: -80, isGreen });
+        }
+
+        function spawnObstacleRandomly() {
+            if (!gameRunning) return;
+            if (gamePaused) {
+                spawnTimeoutId = setTimeout(spawnObstacleRandomly, 100);
+                return;
+            }
+            spawnObstacle();
+            spawnTimeoutId = setTimeout(spawnObstacleRandomly, 1000 + Math.random() * 800);
+        }
+
+        function gameLoop() {
+            if (!gameRunning) return;
+            if (gamePaused) {
+                gameLoopId = requestAnimationFrame(gameLoop);
+                return;
+            }
+
+            // Lerp để di chuyển cực mượt
+            targetPos += (playerPos - targetPos) * 0.12; // 0.12 = tốc độ mượt, không giật
+            const targetLeft = (targetPos * window.innerWidth) - 140; // Di chuyển toàn màn hình
+            player.style.left = targetLeft + 'px';
+
+            for (let i = obstacles.length - 1; i >= 0; i--) {
+                const obs = obstacles[i];
+                obs.y += fallSpeed;
+                obs.elem.style.top = obs.y + 'px';
+
+                // Kiểm tra va chạm: vật cản va chạm với người chơi
+                // Sử dụng tâm của nhân vật để tính toán chính xác
+                const playerCenterX = (targetPos * window.innerWidth);
+                const playerRadius = 70; // Nửa chiều rộng nhân vật (280/2 = 140, nhưng giảm xuống 70 cho hitbox chính xác)
+                const obsCenterX = obs.x + 50; // Tâm của vật cản (100/2 = 50)
+                const obsRadius = 50; // Bán kính vật cản
+
+                if (obs.y > window.innerHeight - 220 && Math.abs(playerCenterX - obsCenterX) < playerRadius + obsRadius) {
+                    if (obs.isGreen) {
+                        score += 10;
+                        scoreEl.textContent = score;
+                        document.getElementById('currentScoreValue').textContent = score;
+                        const bonusSound = document.getElementById('bonusSound');
+                        bonusSound.currentTime = 0;
+                        bonusSound.play().catch(err => console.log('Sound play failed:', err));
+                    } else {
+                        score -= 10;
+                        scoreEl.textContent = score;
+                        document.getElementById('currentScoreValue').textContent = score;
+                        const damageSound = document.getElementById('damageSound');
+                        damageSound.currentTime = 0;
+                        damageSound.play().catch(err => console.log('Sound play failed:', err));
+                        document.body.classList.add('shake');
+                        setTimeout(() => document.body.classList.remove('shake'), 400);
+                    }
+                    obs.elem.remove();
+                    obstacles.splice(i, 1);
+                } else if (obs.y > window.innerHeight + 80) {
+                    obs.elem.remove();
+                    obstacles.splice(i, 1);
+                }
+            }
+
+            gameLoopId = requestAnimationFrame(gameLoop);
+        }
+
+        function updatePlayerPosition() {
+            // Lerp xử lý trong loop
+        }
+
+        function onResults(results) {
+            if (!results.poseLandmarks) return;
+
+            const leftShoulder = results.poseLandmarks[11];
+            const rightShoulder = results.poseLandmarks[12];
+
+            if (leftShoulder && rightShoulder && leftShoulder.visibility > 0.5 && rightShoulder.visibility > 0.5) {
+                // Video bị lật (scaleX -1), nên landmarks cũng bị lật
+                // leftShoulder trên camera → rightShoulder trong landmarks
+                // Tính độ lệch y giữa 2 vai để xác định nghiêng
+                const deltaY = leftShoulder.y - rightShoulder.y; // Trái cao hơn → nghiêng trái
+                const angle = Math.atan2(deltaY, 0.5) * (180 / Math.PI);
+
+                angleStatus.textContent = `Góc nghiêng: ${angle.toFixed(1)}°`;
+
+                // Ánh xạ góc nghiêng (-30 độ đến +30 độ) sang vị trí (0-1)
+                // Góc dương = nghiêng trái = vị trí 0, góc âm = nghiêng phải = vị trí 1
+                const normalizedPos = Math.max(0, Math.min(1, (30 - angle) / 60));
+                playerPos = normalizedPos;
+
+                if (angle > 7) {
+                    leanStatus.textContent = 'Nghiêng: TRÁI ←';
+                } else if (angle < -7) {
+                    leanStatus.textContent = 'Nghiêng: PHẢI →';
+                } else {
+                    leanStatus.textContent = 'Nghiêng: GIỮA';
+                }
+            }
+        }
+    </script>
+</body>
+</html>
